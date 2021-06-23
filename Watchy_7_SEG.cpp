@@ -1,6 +1,11 @@
 #include "Watchy_7_SEG.h"
 
-#define DARKMODE true
+#define DARKMODE false
+//#define OPENWEATHERMAP_APIKEY "value"
+#define TEMP_UNIT "imperial"
+#define CITY_NAME "Pflugerville"
+#define COUNTRY_CODE "US"
+#define TIMEURL "http://worldtimeapi.org/api/timezone/america/chicago"
 
 const uint8_t BATTERY_SEGMENT_WIDTH = 7;
 const uint8_t BATTERY_SEGMENT_HEIGHT = 11;
@@ -9,6 +14,43 @@ const uint8_t WEATHER_ICON_WIDTH = 48;
 const uint8_t WEATHER_ICON_HEIGHT = 32;
 
 Watchy7SEG::Watchy7SEG(){} //constructor
+
+void Watchy7SEG::setTimeFromAPI(){
+
+    time_t t;
+
+    display.init(0, false); //_initial_refresh to false to prevent full update on init
+    display.setFullWindow();
+    display.fillScreen(GxEPD_BLACK);
+    display.setFont(&FreeMonoBold9pt7b);
+    display.setTextColor(GxEPD_WHITE);
+    display.setCursor(0, 30);
+    display.println("Getting time!");
+
+
+    if(connectWiFi()){
+        HTTPClient http;
+        http.setConnectTimeout(3000);//3 second max timeout
+        String timeQueryURL = TIMEURL;
+        http.begin(timeQueryURL.c_str());
+        int httpResponseCode = http.GET();
+        if(httpResponseCode == 200) {
+            String payload = http.getString();
+            JSONVar responseObject = JSON.parse(payload);
+            t = int32_t(responseObject["unixtime"]) + int32_t(responseObject["raw_offset"]) + 2; //3 is a fudge for the delay
+            RTC.set(t);
+            display.println("Set!");
+        }else{
+            display.println("non 200 code");
+        }
+        http.end();
+        WiFi.mode(WIFI_OFF);
+    }else{
+        display.println("no wifi");
+    }
+}
+
+
 
 void Watchy7SEG::drawWatchFace(){
     display.fillScreen(DARKMODE ? GxEPD_BLACK : GxEPD_WHITE);
@@ -28,18 +70,31 @@ void Watchy7SEG::drawTime(){
     display.setFont(&DSEG7_Classic_Bold_53);
     display.setCursor(5, 53+5);
 
-//Show am.pm time
-    if(currentTime.Hour > 12){
-        display.print("0");
-        display.print(currentTime.Hour - 12);
-    }else if(currentTime.Hour == 0){
-        display.print("12");      
-    }else{
-      if(currentTime.Hour < 10){
-          display.print("0");
-      }
-      display.print(currentTime.Hour);
+    //sync every hour
+    if(currentTime.Minute == 0){
+      setTimeFromAPI();
     }
+
+    //Show am.pm time
+    if(currentTime.Hour == 0 && currentTime.Minute == 0){
+      sensor.resetStepCounter();
+    }
+    
+    int16_t curHour;
+    
+    curHour = currentTime.Hour;
+    if (curHour > 12){
+      curHour = curHour - 12;
+    }
+    //midnight is 12am
+    if (curHour == 0){
+      curHour = 12;
+    }
+    //Add leading zero.
+    if(curHour < 10){
+      display.print("0");
+    }
+    display.print(curHour);
     
     display.print(":");
     if(currentTime.Minute < 10){
